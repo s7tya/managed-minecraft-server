@@ -1,3 +1,6 @@
+use byteorder::{BigEndian, WriteBytesExt};
+use core::panic;
+use serde::Deserialize;
 use std::{
     io::{Cursor, Read, Write},
     net::TcpStream,
@@ -5,65 +8,104 @@ use std::{
 
 use integer_encoding::{VarIntReader, VarIntWriter};
 
-const MINECRAFT_PROTOCOL_VERSION: usize = 765;
+const MINECRAFT_PROTOCOL_VERSION: i32 = -1;
 
-enum Packet {
-    Handshake {
-        version: usize,
-        host: String,
-        port: u16,
-        next_status: usize,
-    },
+struct Connection {
+    stream: TcpStream,
 }
 
-impl Packet {
-    fn send_packet(self) -> anyhow::Result<()> {
-        match self {
+impl Connection {
+    pub fn new(host: &str, port: u16) -> anyhow::Result<Self> {
+        let stream = TcpStream::connect((host.to_string(), port))?;
+        stream.set_nodelay(true)?;
+
+        Ok(Connection { stream })
+    }
+
+    fn send_packet(&mut self, packet: Packet) -> anyhow::Result<()> {
+        let mut buf: Vec<u8> = vec![];
+
+        match packet {
             Packet::Handshake {
                 version,
                 host,
                 port,
                 next_status,
             } => {
-                let mut buf: Vec<u8> = Vec::new();
-                buf.write_varint(version)?;
-                buf.write_varint(host.len())?;
+                buf.write_varint(0x00_u32)?;
+
+                buf.write_varint(version as u32)?;
+
+                buf.write_varint(host.len() as u32)?;
                 buf.write_all(host.as_bytes())?;
-                buf.write_varint(port)?;
-                buf.write_varint(next_status)?;
 
-                let mut stream = TcpStream::connect((host, port))?;
-                stream.set_nodelay(true)?;
+                buf.write_u16::<BigEndian>(port)?;
 
-                stream.write_varint(buf.len())?;
-                stream.write_all(&buf)?;
-
-                stream.write_all(&[0x01, 0x00])?;
-
-                let len = stream.read_varint()?;
-                let mut buf = vec![0; len];
-                stream.read_exact(&mut buf)?;
-                let mut cur = Cursor::new(buf);
-
-                match cur.read_varint().unwrap() {
-                    0x00 => {
-                        let mut s = String::new();
-                        cur.read_to_string(&mut s)?;
-
-                        println!("resp: {}", s);
-                    }
-                    _ => {
-                        panic!("Invalid resp");
-                    }
-                }
-
-                Ok(())
+                buf.write_varint(next_status as u32)?;
+            }
+            Packet::StatusRequest => {
+                buf.write_varint(0x00_u32)?;
             }
         }
+
+        let mut packet_buf = vec![];
+        packet_buf.write_varint(buf.len() as u32)?;
+        packet_buf.write_all(&buf)?;
+
+        self.stream.write_all(&packet_buf)?;
+
+        Ok(())
+    }
+
+    fn read_packet(&mut self) -> anyhow::Result<String> {
+        let _: u32 = self.stream.read_varint()?;
+        let packet_id: u32 = self.stream.read_varint()?;
+        if packet_id != 0x00 {
+            panic!("Unsupported protocol: packet_id={}", packet_id);
+        }
+
+        let len: u32 = self.stream.read_varint()?;
+
+        let mut buf = vec![0; len as usize];
+        self.stream.read_exact(&mut buf)?;
+
+        let mut cur = Cursor::new(buf);
+        let mut s = String::new();
+        cur.read_to_string(&mut s)?;
+
+        Ok(s)
     }
 }
 
-pub fn get_online_players_count(host: &str, port: u16) -> anyhow::Result<()> {
+enum Packet {
+    Handshake {
+        version: i32,
+        host: String,
+        port: u16,
+        next_status: i32,
+    },
+    StatusRequest,
+}
+
+#[derive(Deserialize, Debug)]
+struct StatusResponse {
+    pub version: StatusResponseVersion,
+    pub players: StatusResponsePlayers,
+}
+
+#[derive(Deserialize, Debug)]
+struct StatusResponseVersion {
+    pub name: String,
+    pub protocol: i32,
+}
+
+#[derive(Deserialize, Debug)]
+struct StatusResponsePlayers {
+    pub max: usize,
+    pub online: usize,
+}
+
+pub fn get_online_players_count(host: &str, port: u16) -> anyhow::Result<usize> {
     let packet = Packet::Handshake {
         version: MINECRAFT_PROTOCOL_VERSION,
         host: host.to_string(),
@@ -71,7 +113,13 @@ pub fn get_online_players_count(host: &str, port: u16) -> anyhow::Result<()> {
         next_status: 1,
     };
 
-    packet.send_packet()?;
+    let mut conn = Connection::new(host, port)?;
 
-    Ok(())
+    conn.send_packet(packet)?;
+    conn.send_packet(Packet::StatusRequest)?;
+
+    let res = conn.read_packet()?;
+    let value: StatusResponse = serde_json::from_str(&res)?;
+
+    Ok(value.players.online)
 }
