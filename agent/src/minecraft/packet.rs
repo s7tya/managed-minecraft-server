@@ -43,7 +43,7 @@ impl Connection {
 
                 buf.write_varint(version as u32)?;
 
-                buf.write_varint(host.len() as u32)?;
+                buf.write_varint(host.as_bytes().len() as u32)?;
                 buf.write_all(host.as_bytes())?;
 
                 buf.write_u16::<BigEndian>(port)?;

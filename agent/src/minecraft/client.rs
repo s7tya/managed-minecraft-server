@@ -4,9 +4,15 @@ use crate::minecraft::{
 };
 
 pub struct Client {
+    status: ClientStatus,
     conn: packet::Connection,
     host: String,
     port: u16,
+}
+
+enum ClientStatus {
+    BeforeHandshake,
+    AfterHandshake,
 }
 
 impl Client {
@@ -14,6 +20,7 @@ impl Client {
         let conn = packet::Connection::new(host, port)?;
 
         Ok(Client {
+            status: ClientStatus::BeforeHandshake,
             conn,
             host: host.to_string(),
             port,
@@ -22,7 +29,7 @@ impl Client {
 
     pub fn handshake(&mut self) -> anyhow::Result<()> {
         let packet = Packet::Handshake {
-            version: -1,
+            version: 765,
             host: self.host.clone(),
             port: self.port,
             next_status: 1,
@@ -30,12 +37,19 @@ impl Client {
 
         self.conn.send_packet(packet)?;
 
+        self.status = ClientStatus::AfterHandshake;
+
         Ok(())
     }
 
     pub fn status(&mut self) -> anyhow::Result<status::Response> {
+        if let ClientStatus::BeforeHandshake = self.status {
+            self.handshake()?;
+        }
+
         self.conn.send_packet(Packet::StatusRequest)?;
         let res = self.conn.read_packet()?;
+
         let value: status::Response = serde_json::from_str(&res)?;
 
         Ok(value)

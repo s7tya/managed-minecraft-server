@@ -1,16 +1,16 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // https://minecraft.wiki/w/Raw_JSON_text_format
 // https://wiki.vg/Text_formatting#Text_components
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 pub enum RawJsonText {
     String(String),
     Object(Object),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct Object {
     pub text: String,
 
