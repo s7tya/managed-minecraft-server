@@ -1,4 +1,4 @@
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use core::panic;
 use std::{
     io::{Cursor, Read, Write},
@@ -64,7 +64,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn read_packet(&mut self) -> anyhow::Result<String> {
+    pub fn read_handshake_resp_packet(&mut self) -> anyhow::Result<String> {
         let _: u32 = self.stream.read_varint()?;
         let packet_id: u32 = self.stream.read_varint()?;
         if packet_id != 0x00 {
@@ -82,4 +82,37 @@ impl Connection {
 
         Ok(s)
     }
+}
+
+pub fn read_handshake_packet(stream: &mut TcpStream) -> anyhow::Result<Packet> {
+    let packet_len: u32 = stream.read_varint()?;
+
+    let packet_id: u32 = stream.read_varint()?;
+    if packet_id != 0x00 {
+        panic!(
+            "Unsupported protocol: packet_id={:02X}, packet_len={:02X}",
+            packet_id, packet_len
+        );
+    }
+
+    let version: u32 = stream.read_varint()?;
+
+    let host_len: u32 = stream.read_varint()?;
+    let mut host_buf = vec![0_u8; host_len as usize];
+    stream.read_exact(&mut host_buf)?;
+
+    let mut host_buf_cur = Cursor::new(host_buf);
+    let mut host = String::new();
+    host_buf_cur.read_to_string(&mut host)?;
+
+    let port = stream.read_u16::<BigEndian>()?;
+
+    let next_status: u32 = stream.read_varint()?;
+
+    Ok(Packet::Handshake {
+        version: version as i32,
+        host,
+        port,
+        next_status: next_status as i32,
+    })
 }

@@ -48,7 +48,7 @@ impl Client {
         }
 
         self.conn.send_packet(Packet::StatusRequest)?;
-        let res = self.conn.read_packet()?;
+        let res = self.conn.read_handshake_resp_packet()?;
 
         let value: status::Response = serde_json::from_str(&res)?;
 
