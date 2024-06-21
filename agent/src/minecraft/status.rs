@@ -1,9 +1,10 @@
+use integer_encoding::VarIntWriter;
 use serde::{Deserialize, Serialize};
 
-use super::raw_json_text::RawJsonText;
+use super::{packet::PacketEncoder, raw_json_text::RawJsonText};
 
 #[derive(Serialize, Deserialize, Debug)]
-pub struct Response {
+pub struct StatusResponse {
     pub version: Version,
     pub players: Players,
     pub description: RawJsonText,
@@ -30,4 +31,16 @@ pub struct Modinfo {
     #[serde(rename = "modList")]
     pub mod_list: Vec<String>,
     pub r#type: String,
+}
+
+impl PacketEncoder for StatusResponse {
+    fn encode<W: std::io::Write>(&self, stream: &mut W) -> anyhow::Result<()> {
+        stream.write_varint(0x00_u32)?;
+
+        let s = serde_json::to_string(&self)?.into_bytes();
+        stream.write_varint(s.len() as u32)?;
+        stream.write_all(&s)?;
+
+        Ok(())
+    }
 }

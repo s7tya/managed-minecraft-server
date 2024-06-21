@@ -1,10 +1,7 @@
-use std::{io::Write, net::TcpListener};
-
-use integer_encoding::{VarIntReader, VarIntWriter};
-
-use crate::minecraft::packet::read_handshake_packet;
+use std::net::TcpListener;
 
 use super::{
+    packet::{read_packet, Handshake, Packet, StatusRequest, WritePacketExt},
     raw_json_text::RawJsonText,
     status::{self, Players, Version},
 };
@@ -19,18 +16,10 @@ impl Server {
         for stream in listener.incoming() {
             match stream {
                 Ok(mut stream) => {
-                    let _ = read_handshake_packet(&mut stream)?;
+                    let _handshake: Handshake = read_packet(&mut stream)?;
+                    let _status_request: StatusRequest = read_packet(&mut stream)?;
 
-                    let packet_len: u32 = stream.read_varint()?;
-                    let packet_id: u32 = stream.read_varint()?;
-                    if packet_id != 0x00 {
-                        panic!(
-                            "Unsupported protocol: packet_id={:02X?}, packet_len={}",
-                            packet_id, packet_len
-                        );
-                    }
-
-                    let resp = status::Response {
+                    let resp = status::StatusResponse {
                         version: Version {
                             name: "Motd Only Server".to_string(),
                             protocol: 765,
@@ -41,15 +30,7 @@ impl Server {
                         favicon: None,
                     };
 
-                    let mut buf: Vec<u8> = vec![];
-                    buf.write_varint(0x00_u32)?;
-
-                    let s = serde_json::to_string(&resp)?.into_bytes();
-                    buf.write_varint(s.len() as u32)?;
-                    buf.write_all(&s)?;
-
-                    stream.write_varint(buf.len() as u32)?;
-                    stream.write_all(&buf)?;
+                    stream.write_packet(Packet::StatusResponse(resp))?;
                 }
                 Err(e) => {
                     println!("Err: {}", e);
