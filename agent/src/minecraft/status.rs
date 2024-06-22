@@ -24,6 +24,14 @@ pub struct Version {
 pub struct Players {
     pub max: usize,
     pub online: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample: Option<Vec<SamplePlayer>>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct SamplePlayer {
+    pub name: String,
+    pub id: uuid::Uuid,
 }
 
 #[derive(Serialize, Deserialize, Debug)]

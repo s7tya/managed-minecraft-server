@@ -3,7 +3,7 @@ use std::net::TcpListener;
 use super::{
     packet::{read_packet, Handshake, Packet, Ping, StatusRequest, WritePacketExt},
     raw_json_text::RawJsonText,
-    status::{self, Players, Version},
+    status::{self, Players, SamplePlayer, Version},
 };
 
 #[derive(Default)]
@@ -23,7 +23,11 @@ impl Server {
                     name: "Motd Only Server".to_string(),
                     protocol: 765,
                 },
-                players: Players { max: 0, online: 0 },
+                players: Players {
+                    max: 100,
+                    online: 1,
+                    sample: None,
+                },
                 description: RawJsonText::String("Hello from Rust!".to_string()),
                 modinfo: None,
                 favicon: None,
