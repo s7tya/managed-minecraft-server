@@ -36,7 +36,7 @@ fn handle_request(stream: &mut TcpStream) -> anyhow::Result<()> {
             let status_response = status_response::StatusResponse {
                 version: Version {
                     name: "Motd Only Server".to_string(),
-                    protocol: 765,
+                    protocol: 767,
                 },
                 players: Players {
                     max: 100,
