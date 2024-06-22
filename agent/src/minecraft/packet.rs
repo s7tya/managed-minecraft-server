@@ -1,8 +1,9 @@
-use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::panic;
 use std::{
     io::{Cursor, Read, Write},
     net::TcpStream,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 use integer_encoding::{VarIntReader, VarIntWriter};
@@ -26,6 +27,9 @@ impl WritePacketExt for TcpStream {
             }
             Packet::StatusResponse(status_response) => {
                 status_response.encode(&mut buf)?;
+            }
+            Packet::Ping(ping) => {
+                ping.encode(&mut buf)?;
             }
         }
 
@@ -58,6 +62,7 @@ pub enum Packet {
     Handshake(Handshake),
     StatusRequest(StatusRequest),
     StatusResponse(StatusResponse),
+    Ping(Ping),
 }
 
 #[derive(Debug)]
@@ -138,5 +143,30 @@ impl PacketDecoder for StatusRequest {
         }
 
         Ok(Box::new(StatusRequest {}))
+    }
+}
+#[derive(Debug)]
+pub struct Ping {
+    payload: u64,
+}
+
+impl PacketEncoder for Ping {
+    fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
+        stream.write_u64::<LittleEndian>(self.payload)?;
+
+        Ok(())
+    }
+}
+
+impl PacketDecoder for Ping {
+    fn decode<R: Read>(_stream: &mut R) -> anyhow::Result<Box<Self>> {
+        let start = SystemTime::now();
+        let now = start
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards");
+
+        let payload = now.as_secs();
+
+        Ok(Box::new(Ping { payload }))
     }
 }

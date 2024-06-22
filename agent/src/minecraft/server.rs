@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 
 use super::{
-    packet::{read_packet, Handshake, Packet, StatusRequest, WritePacketExt},
+    packet::{read_packet, Handshake, Packet, Ping, StatusRequest, WritePacketExt},
     raw_json_text::RawJsonText,
     status::{self, Players, Version},
 };
@@ -14,28 +14,24 @@ impl Server {
         let listener = TcpListener::bind("127.0.0.1:25565")?;
 
         for stream in listener.incoming() {
-            match stream {
-                Ok(mut stream) => {
-                    let _handshake: Handshake = read_packet(&mut stream)?;
-                    let _status_request: StatusRequest = read_packet(&mut stream)?;
+            let mut stream = stream?;
+            let _handshake: Handshake = read_packet(&mut stream)?;
+            let _status_request: StatusRequest = read_packet(&mut stream)?;
 
-                    let resp = status::StatusResponse {
-                        version: Version {
-                            name: "Motd Only Server".to_string(),
-                            protocol: 765,
-                        },
-                        players: Players { max: 0, online: 0 },
-                        description: RawJsonText::String("Hello from Rust!".to_string()),
-                        modinfo: None,
-                        favicon: None,
-                    };
+            let status_response = status::StatusResponse {
+                version: Version {
+                    name: "Motd Only Server".to_string(),
+                    protocol: 765,
+                },
+                players: Players { max: 0, online: 0 },
+                description: RawJsonText::String("Hello from Rust!".to_string()),
+                modinfo: None,
+                favicon: None,
+            };
+            stream.write_packet(Packet::StatusResponse(status_response))?;
 
-                    stream.write_packet(Packet::StatusResponse(resp))?;
-                }
-                Err(e) => {
-                    println!("Err: {}", e);
-                }
-            }
+            let ping: Ping = read_packet(&mut stream)?;
+            stream.write_packet(Packet::Ping(ping))?;
         }
 
         Ok(())
