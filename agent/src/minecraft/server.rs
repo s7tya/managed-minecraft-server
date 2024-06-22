@@ -1,9 +1,11 @@
 use std::net::TcpListener;
 
 use super::{
-    packet::{read_packet, Handshake, Packet, Ping, StatusRequest, WritePacketExt},
+    packet::{
+        read_packet, DisconnectLogin, Handshake, Packet, Ping, StatusRequest, WritePacketExt,
+    },
     raw_json_text::RawJsonText,
-    status::{self, Players, SamplePlayer, Version},
+    status::{self, Players, Version},
 };
 
 #[derive(Default)]
@@ -15,27 +17,43 @@ impl Server {
 
         for stream in listener.incoming() {
             let mut stream = stream?;
-            let _handshake: Handshake = read_packet(&mut stream)?;
-            let _status_request: StatusRequest = read_packet(&mut stream)?;
+            let handshake: Handshake = read_packet(&mut stream)?;
 
-            let status_response = status::StatusResponse {
-                version: Version {
-                    name: "Motd Only Server".to_string(),
-                    protocol: 765,
-                },
-                players: Players {
-                    max: 100,
-                    online: 1,
-                    sample: None,
-                },
-                description: RawJsonText::String("Hello from Rust!".to_string()),
-                modinfo: None,
-                favicon: None,
-            };
-            stream.write_packet(Packet::StatusResponse(status_response))?;
+            match handshake.next_status {
+                0x01 => {
+                    let _status_request: StatusRequest = read_packet(&mut stream)?;
 
-            let ping: Ping = read_packet(&mut stream)?;
-            stream.write_packet(Packet::Ping(ping))?;
+                    let status_response = status::StatusResponse {
+                        version: Version {
+                            name: "Motd Only Server".to_string(),
+                            protocol: 765,
+                        },
+                        players: Players {
+                            max: 100,
+                            online: 1,
+                            sample: None,
+                        },
+                        description: RawJsonText::String("Hello from Rust!".to_string()),
+                        modinfo: None,
+                        favicon: None,
+                    };
+                    stream.write_packet(Packet::StatusResponse(status_response))?;
+
+                    let ping: Ping = read_packet(&mut stream)?;
+                    stream.write_packet(Packet::Ping(ping))?;
+                }
+                0x02 => {
+                    stream.write_packet(Packet::DisconnectLogin(DisconnectLogin {
+                        reason: RawJsonText::String("Hello!".to_string()),
+                    }))?;
+                }
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "Invalid next_state: {}",
+                        handshake.next_status
+                    ))
+                }
+            }
         }
 
         Ok(())

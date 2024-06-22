@@ -1,5 +1,6 @@
 use byteorder::{BigEndian, LittleEndian, ReadBytesExt, WriteBytesExt};
 use core::panic;
+use serde::Serialize;
 use std::{
     io::{Cursor, Read, Write},
     net::TcpStream,
@@ -8,7 +9,7 @@ use std::{
 
 use integer_encoding::{VarIntReader, VarIntWriter};
 
-use super::status::StatusResponse;
+use super::{raw_json_text::RawJsonText, status::StatusResponse};
 
 pub trait WritePacketExt {
     fn write_packet(&mut self, packet: Packet) -> anyhow::Result<()>;
@@ -30,6 +31,9 @@ impl WritePacketExt for TcpStream {
             }
             Packet::Ping(ping) => {
                 ping.encode(&mut buf)?;
+            }
+            Packet::DisconnectLogin(disconnect_login) => {
+                disconnect_login.encode(&mut buf)?;
             }
         }
 
@@ -63,6 +67,7 @@ pub enum Packet {
     StatusRequest(StatusRequest),
     StatusResponse(StatusResponse),
     Ping(Ping),
+    DisconnectLogin(DisconnectLogin),
 }
 
 #[derive(Debug)]
@@ -168,5 +173,21 @@ impl PacketDecoder for Ping {
         let payload = now.as_secs();
 
         Ok(Box::new(Ping { payload }))
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub struct DisconnectLogin {
+    pub reason: RawJsonText,
+}
+
+impl PacketEncoder for DisconnectLogin {
+    fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
+        let s = serde_json::to_string(&self.reason)?.into_bytes();
+        stream.write_varint(0x00_u32)?;
+        stream.write_varint(s.len() as u32)?;
+        stream.write_all(&s)?;
+
+        Ok(())
     }
 }
