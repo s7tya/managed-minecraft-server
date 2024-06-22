@@ -10,7 +10,7 @@ pub enum RawJsonText {
     Object(Object),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Default)]
 pub struct Object {
     pub text: String,
 
