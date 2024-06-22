@@ -1,6 +1,5 @@
 pub mod client;
 pub mod packet;
-pub mod server;
+pub mod raw_json_text;
 
 mod connection;
-mod raw_json_text;
