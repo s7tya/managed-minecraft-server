@@ -1,5 +1,4 @@
 use byteorder::WriteBytesExt;
-use integer_encoding::VarIntWriter;
 use std::{
     io::{Read, Write},
     time::{SystemTime, UNIX_EPOCH},
@@ -15,8 +14,11 @@ pub struct Ping {
 }
 
 impl PacketEncoder for Ping {
+    fn packet_id(&self) -> u32 {
+        0x01
+    }
+
     fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
-        stream.write_varint(0x01_u32)?;
         stream.write_u64::<LittleEndian>(self.payload)?;
 
         Ok(())
@@ -24,6 +26,10 @@ impl PacketEncoder for Ping {
 }
 
 impl PacketDecoder for Ping {
+    fn packet_id(&self) -> u32 {
+        0x01
+    }
+
     fn decode<R: Read>(_stream: &mut R) -> anyhow::Result<Box<Self>> {
         let start = SystemTime::now();
         let now = start

@@ -1,5 +1,4 @@
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use core::panic;
 use integer_encoding::{VarIntReader, VarIntWriter};
 use std::io::{Cursor, Read, Write};
 
@@ -14,9 +13,11 @@ pub struct Handshake {
 }
 
 impl PacketEncoder for Handshake {
-    fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
-        stream.write_varint(0x00_u32)?;
+    fn packet_id(&self) -> u32 {
+        0x00
+    }
 
+    fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
         stream.write_varint(self.version as u32)?;
 
         let host_bytes = self.host.as_bytes();
@@ -32,12 +33,11 @@ impl PacketEncoder for Handshake {
 }
 
 impl PacketDecoder for Handshake {
-    fn decode<R: Read>(stream: &mut R) -> anyhow::Result<Box<Self>> {
-        let packet_id: u32 = stream.read_varint()?;
-        if packet_id != 0x00 {
-            panic!("Unsupported protocol: packet_id={:02X}", packet_id);
-        }
+    fn packet_id(&self) -> u32 {
+        0x00
+    }
 
+    fn decode<R: Read>(stream: &mut R) -> anyhow::Result<Box<Self>> {
         let version: u32 = stream.read_varint()?;
 
         let host_len: u32 = stream.read_varint()?;

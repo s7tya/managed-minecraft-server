@@ -18,6 +18,8 @@ pub trait WritePacketExt {
 impl WritePacketExt for TcpStream {
     fn write_packet<P: PacketEncoder>(&mut self, packet: P) -> anyhow::Result<()> {
         let mut buf: Vec<u8> = vec![];
+
+        buf.write_varint(packet.packet_id())?;
         packet.encode(&mut buf)?;
 
         let mut packet_buf = vec![];
@@ -32,15 +34,22 @@ impl WritePacketExt for TcpStream {
 
 pub fn read_packet<P: PacketDecoder>(stream: &mut TcpStream) -> anyhow::Result<P> {
     let _packet_len: u32 = stream.read_varint()?;
-    let packet = P::decode(stream)?;
+    let packet_id: u32 = stream.read_varint()?;
 
-    Ok(*packet)
+    let packet = *P::decode(stream)?;
+    if packet.packet_id() != packet_id {
+        return Err(anyhow::anyhow!("Invalid packet_id"));
+    }
+
+    Ok(packet)
 }
 
 pub trait PacketEncoder {
     fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()>;
+    fn packet_id(&self) -> u32;
 }
 
 pub trait PacketDecoder {
     fn decode<R: Read>(stream: &mut R) -> anyhow::Result<Box<Self>>;
+    fn packet_id(&self) -> u32;
 }

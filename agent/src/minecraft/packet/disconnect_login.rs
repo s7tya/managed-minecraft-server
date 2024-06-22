@@ -11,9 +11,12 @@ pub struct DisconnectLogin {
 }
 
 impl PacketEncoder for DisconnectLogin {
+    fn packet_id(&self) -> u32 {
+        0x00
+    }
+
     fn encode<W: Write>(&self, stream: &mut W) -> anyhow::Result<()> {
         let s = serde_json::to_string(&self.reason)?.into_bytes();
-        stream.write_varint(0x00_u32)?;
         stream.write_varint(s.len() as u32)?;
         stream.write_all(&s)?;
 
