@@ -1,8 +1,10 @@
-use crate::minecraft::{packet::Packet, status};
+use crate::minecraft::packet::Packet;
 
 use super::{
     connection::Connection,
-    packet::{Handshake, StatusRequest},
+    packet::{
+        handshake::Handshake, status_request::StatusRequest, status_response::StatusResponse,
+    },
 };
 
 pub struct Client {
@@ -44,7 +46,7 @@ impl Client {
         Ok(())
     }
 
-    pub fn status(&mut self) -> anyhow::Result<status::StatusResponse> {
+    pub fn status(&mut self) -> anyhow::Result<StatusResponse> {
         if let ClientStatus::BeforeHandshake = self.status {
             self.handshake()?;
         }
@@ -53,7 +55,7 @@ impl Client {
             .send_packet(Packet::StatusRequest(StatusRequest {}))?;
         let res = self.conn.read_handshake_resp_packet()?;
 
-        let value: status::StatusResponse = serde_json::from_str(&res)?;
+        let value: StatusResponse = serde_json::from_str(&res)?;
 
         Ok(value)
     }

@@ -2,10 +2,15 @@ use std::net::TcpListener;
 
 use super::{
     packet::{
-        read_packet, DisconnectLogin, Handshake, Packet, Ping, StatusRequest, WritePacketExt,
+        disconnect_login::DisconnectLogin,
+        handshake::Handshake,
+        ping::Ping,
+        read_packet,
+        status_request::StatusRequest,
+        status_response::{self, Players, Version},
+        Packet, WritePacketExt,
     },
     raw_json_text::RawJsonText,
-    status::{self, Players, Version},
 };
 
 #[derive(Default)]
@@ -23,7 +28,7 @@ impl Server {
                 0x01 => {
                     let _status_request: StatusRequest = read_packet(&mut stream)?;
 
-                    let status_response = status::StatusResponse {
+                    let status_response = status_response::StatusResponse {
                         version: Version {
                             name: "Motd Only Server".to_string(),
                             protocol: 765,

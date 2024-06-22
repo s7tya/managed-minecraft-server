@@ -1,7 +1,9 @@
 use integer_encoding::VarIntWriter;
 use serde::{Deserialize, Serialize};
 
-use super::{packet::PacketEncoder, raw_json_text::RawJsonText};
+use crate::minecraft::raw_json_text::RawJsonText;
+
+use super::PacketEncoder;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct StatusResponse {
