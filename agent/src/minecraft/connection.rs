@@ -6,7 +6,7 @@ use std::{
 
 use integer_encoding::VarIntReader;
 
-use super::packet::{Packet, WritePacketExt};
+use super::packet::{PacketEncoder, WritePacketExt};
 
 pub struct Connection {
     stream: TcpStream,
@@ -20,7 +20,7 @@ impl Connection {
         Ok(Connection { stream })
     }
 
-    pub fn send_packet(&mut self, packet: Packet) -> anyhow::Result<()> {
+    pub fn send_packet<P: PacketEncoder>(&mut self, packet: P) -> anyhow::Result<()> {
         self.stream.write_packet(packet)?;
         Ok(())
     }

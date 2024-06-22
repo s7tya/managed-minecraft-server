@@ -8,7 +8,7 @@ use super::{
         read_packet,
         status_request::StatusRequest,
         status_response::{self, Players, Version},
-        Packet, WritePacketExt,
+        WritePacketExt,
     },
     raw_json_text::RawJsonText,
 };
@@ -42,15 +42,15 @@ impl Server {
                         modinfo: None,
                         favicon: None,
                     };
-                    stream.write_packet(Packet::StatusResponse(status_response))?;
+                    stream.write_packet(status_response)?;
 
                     let ping: Ping = read_packet(&mut stream)?;
-                    stream.write_packet(Packet::Ping(ping))?;
+                    stream.write_packet(ping)?;
                 }
                 0x02 => {
-                    stream.write_packet(Packet::DisconnectLogin(DisconnectLogin {
+                    stream.write_packet(DisconnectLogin {
                         reason: RawJsonText::String("Hello!".to_string()),
-                    }))?;
+                    })?;
                 }
                 _ => {
                     return Err(anyhow::anyhow!(

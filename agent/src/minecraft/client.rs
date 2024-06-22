@@ -1,5 +1,3 @@
-use crate::minecraft::packet::Packet;
-
 use super::{
     connection::Connection,
     packet::{
@@ -32,14 +30,13 @@ impl Client {
     }
 
     pub fn handshake(&mut self) -> anyhow::Result<()> {
-        let packet = Packet::Handshake(Handshake {
+        let handshake = Handshake {
             version: 765,
             host: self.host.clone(),
             port: self.port,
             next_status: 1,
-        });
-
-        self.conn.send_packet(packet)?;
+        };
+        self.conn.send_packet(handshake)?;
 
         self.status = ClientStatus::AfterHandshake;
 
@@ -51,8 +48,7 @@ impl Client {
             self.handshake()?;
         }
 
-        self.conn
-            .send_packet(Packet::StatusRequest(StatusRequest {}))?;
+        self.conn.send_packet(StatusRequest {})?;
         let res = self.conn.read_handshake_resp_packet()?;
 
         let value: StatusResponse = serde_json::from_str(&res)?;
