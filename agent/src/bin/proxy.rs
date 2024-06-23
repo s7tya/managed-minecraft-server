@@ -11,55 +11,53 @@ use agent::minecraft::{
     raw_json_text::RawJsonText,
 };
 use std::sync::{Arc, Mutex};
-use tokio::try_join;
+use tokio::{
+    net::{TcpListener, TcpStream},
+    try_join,
+};
 
-struct Server {
+struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
+    client_address: &'a str,
+    server_address: &'a str,
 }
 
-const CLIENT_ADDR: &str = "127.0.0.1:25564";
-const SERVER_ADDR: &str = "127.0.0.1:25565";
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = Server {
-        is_proxy: Arc::new(Mutex::new(false)),
-    };
-
-    loop {
-        let is_proxy = *server.is_proxy.lock().unwrap();
-
-        if is_proxy {
-            let listener = tokio::net::TcpListener::bind(CLIENT_ADDR).await?;
-            let (client, _) = listener.accept().await?;
-            if let Err(e) = handle_proxy(client).await {
-                eprintln!("Error handling client connection: {:?}", e);
-            }
-        } else {
-            let listener = std::net::TcpListener::bind(SERVER_ADDR)?;
-            let (mut stream, _) = listener.accept()?;
-            server.handle_request(&mut stream)?;
+impl<'a> Server<'a> {
+    pub fn new(client_address: &'a str, server_address: &'a str) -> Self {
+        Self {
+            is_proxy: Arc::new(Mutex::new(false)),
+            client_address,
+            server_address,
         }
     }
-}
 
-async fn handle_proxy(
-    mut client_conn: tokio::net::TcpStream,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut main_server_conn = tokio::net::TcpStream::connect(SERVER_ADDR).await?;
-    let (mut client_recv, mut client_send) = client_conn.split();
-    let (mut server_recv, mut server_send) = main_server_conn.split();
+    async fn handle_request(&self, stream: TcpStream) -> anyhow::Result<()> {
+        let is_proxy = *self.is_proxy.lock().unwrap();
+        if is_proxy {
+            self.handle_proxy(stream).await?;
+        } else {
+            let mut std_stream = stream.into_std()?;
+            std_stream.set_nonblocking(false)?;
+            self.handle_motd(&mut std_stream)?;
+        }
 
-    let handle_one = async { tokio::io::copy(&mut server_recv, &mut client_send).await };
-    let handle_two = async { tokio::io::copy(&mut client_recv, &mut server_send).await };
+        Ok(())
+    }
 
-    try_join!(handle_one, handle_two)?;
+    async fn handle_proxy(&self, mut client_conn: TcpStream) -> anyhow::Result<()> {
+        let mut main_server_conn = TcpStream::connect(&self.server_address).await?;
+        let (mut client_recv, mut client_send) = client_conn.split();
+        let (mut server_recv, mut server_send) = main_server_conn.split();
 
-    Ok(())
-}
+        let handle_one = async { tokio::io::copy(&mut server_recv, &mut client_send).await };
+        let handle_two = async { tokio::io::copy(&mut client_recv, &mut server_send).await };
 
-impl Server {
-    fn handle_request(&self, stream: &mut std::net::TcpStream) -> anyhow::Result<()> {
+        try_join!(handle_one, handle_two)?;
+
+        Ok(())
+    }
+
+    fn handle_motd(&self, stream: &mut std::net::TcpStream) -> anyhow::Result<()> {
         let handshake: Handshake = read_packet(stream)?;
 
         match handshake.next_status {
@@ -107,11 +105,29 @@ impl Server {
     }
 }
 
-// Clone implementation for Server
-impl Clone for Server {
+impl Clone for Server<'_> {
     fn clone(&self) -> Self {
         Server {
             is_proxy: Arc::clone(&self.is_proxy),
+            client_address: self.client_address,
+            server_address: self.server_address,
         }
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = Server::new("127.0.0.1:25564", "127.0.0.1:25565");
+    let listener = TcpListener::bind(server.client_address).await?;
+
+    loop {
+        let server = server.clone();
+        let (stream, _) = listener.accept().await?;
+        tokio::spawn(async move {
+            if let Err(e) = server.handle_request(stream).await {
+                eprintln!("Error handling request: {e}");
+            }
+        })
+        .await?;
     }
 }
