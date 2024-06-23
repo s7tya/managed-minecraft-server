@@ -19,13 +19,13 @@ pub struct Object {
 
     /* 装飾 */
     pub color: Option<String>,
-    // font
+    pub font: Option<String>,
     pub bold: Option<bool>,
-    // italic
-    // underlined
-    // strikethrough
+    pub italic: Option<bool>,
+    pub underlined: Option<bool>,
+    pub strikethrough: Option<bool>,
     pub obfuscated: Option<bool>,
-    // insertion
+    pub insertion: Option<String>,
     // clickEvent
     // hoverEvent
 }
