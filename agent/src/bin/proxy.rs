@@ -1,4 +1,5 @@
 use agent::minecraft::{
+    client,
     packet::{
         disconnect_login::DisconnectLogin,
         handshake::Handshake,
@@ -13,8 +14,10 @@ use agent::minecraft::{
 use std::sync::{Arc, Mutex};
 use tokio::{
     net::{TcpListener, TcpStream},
-    try_join,
+    time, try_join,
 };
+
+const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(60 * 5);
 
 struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
@@ -117,8 +120,37 @@ impl Clone for Server<'_> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = Server::new("127.0.0.1:25564", "127.0.0.1:25565");
+    let client_addr = "127.0.0.1:25564";
+    let server_addr = "127.0.0.1:25565";
+    let server = Server::new(client_addr, server_addr);
     let listener = TcpListener::bind(server.client_address).await?;
+
+    let mut interval = time::interval(USAGE_CHECK_INTERVAL);
+    let split = server_addr.split(':').collect::<Vec<_>>();
+    let (host, port) = (split[0], split[1].parse()?);
+
+    let is_proxy_for_interval = server.clone().is_proxy.clone();
+    tokio::task::spawn(async move {
+        let mut inactive_count = 0;
+
+        loop {
+            interval.tick().await;
+
+            let mut client = client::Client::new(host, port).unwrap();
+            let status = client.status().unwrap();
+            if status.players.online == 0 {
+                inactive_count += 1;
+            } else {
+                inactive_count = 0;
+            }
+
+            if inactive_count >= 3 {
+                // TODO: サーバーのシャットダウン
+                let mut is_proxy = is_proxy_for_interval.lock().unwrap();
+                *is_proxy = false;
+            }
+        }
+    });
 
     loop {
         let server = server.clone();
@@ -127,7 +159,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if let Err(e) = server.handle_request(stream).await {
                 eprintln!("Error handling request: {e}");
             }
-        })
-        .await?;
+        });
     }
 }
