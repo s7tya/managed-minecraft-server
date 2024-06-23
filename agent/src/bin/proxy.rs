@@ -17,7 +17,7 @@ use tokio::{
     time, try_join,
 };
 
-const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(60 * 5);
+const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(5);
 
 struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
@@ -135,6 +135,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         loop {
             interval.tick().await;
+
+            let is_proxy = is_proxy_for_interval.lock().unwrap();
+            if !*is_proxy {
+                continue;
+            }
 
             let mut client = client::Client::new(host, port).unwrap();
             let status = client.status().unwrap();
