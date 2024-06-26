@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     aws = {
-      source = "hashicorp/aws"
+      source  = "hashicorp/aws"
       version = "~> 5.55"
     }
   }
@@ -16,17 +16,20 @@ variable "aws_key_name" {
   type        = string
 }
 
-resource "aws_instance" "minecraft_server" {
-  ami           = "ami-061a125c7c02edb39" # Amazon Linux 2023
-  instance_type = "t3.large"
-  key_name      = var.aws_key_name
+resource "aws_spot_instance_request" "minecraft_server" {
+  ami                         = "ami-061a125c7c02edb39" # Amazon Linux 2023
+  instance_type               = "t3.large"
+  key_name                    = var.aws_key_name
+
+  instance_interruption_behavior = "stop"
+  wait_for_fulfillment = true
 
   vpc_security_group_ids = [
     aws_security_group.allow_ssh.id,
     aws_security_group.allow_minecraft_port.id
   ]
 
-  user_data = "${file("user_data.sh")}"
+  user_data = file("user_data.sh")
 
   tags = {
     Name = "minecraft-server"
@@ -72,5 +75,9 @@ resource "aws_security_group" "allow_minecraft_port" {
 }
 
 output "instance_ip" {
-  value = aws_instance.minecraft_server.public_ip
+  value = aws_spot_instance_request.minecraft_server.public_ip
+}
+
+output "instance_id" {
+  value = aws_spot_instance_request.minecraft_server.id
 }
