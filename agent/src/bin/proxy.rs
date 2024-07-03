@@ -1,5 +1,5 @@
 use agent::minecraft::{
-    client,
+    self, client,
     packet::{
         disconnect_login::DisconnectLogin,
         handshake::Handshake,
@@ -11,7 +11,13 @@ use agent::minecraft::{
     },
     raw_json_text::RawJsonText,
 };
-use std::sync::{Arc, Mutex};
+use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
+use aws_sdk_ec2::Client;
+use std::{
+    sync::{Arc, Mutex},
+    thread,
+    time::Duration,
+};
 use tokio::{
     net::{TcpListener, TcpStream},
     time, try_join,
@@ -23,14 +29,16 @@ struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
     client_address: &'a str,
     server_address: &'a str,
+    instance_id: &'a str,
 }
 
 impl<'a> Server<'a> {
-    pub fn new(client_address: &'a str, server_address: &'a str) -> Self {
+    pub fn new(client_address: &'a str, server_address: &'a str, instance_id: &'a str) -> Self {
         Self {
             is_proxy: Arc::new(Mutex::new(false)),
             client_address,
             server_address,
+            instance_id,
         }
     }
 
@@ -41,7 +49,7 @@ impl<'a> Server<'a> {
         } else {
             let mut std_stream = stream.into_std()?;
             std_stream.set_nonblocking(false)?;
-            self.handle_motd(&mut std_stream)?;
+            self.handle_motd(&mut std_stream).await?;
         }
 
         Ok(())
@@ -60,7 +68,7 @@ impl<'a> Server<'a> {
         Ok(())
     }
 
-    fn handle_motd(&self, stream: &mut std::net::TcpStream) -> anyhow::Result<()> {
+    async fn handle_motd(&self, stream: &mut std::net::TcpStream) -> anyhow::Result<()> {
         let handshake: Handshake = read_packet(stream)?;
 
         match handshake.next_status {
@@ -87,14 +95,32 @@ impl<'a> Server<'a> {
                 stream.write_packet(ping)?;
             }
             0x02 => {
-                stream.write_packet(DisconnectLogin {
-                    reason: RawJsonText::String(
-                        "プロキシを開始しました。再度接続してください。".to_string(),
-                    ),
-                })?;
+                if self.start_instance().await.is_ok() {
+                    stream.write_packet(DisconnectLogin {
+                        reason: RawJsonText::String(
+                            "プロキシを開始しました。再度接続してください。".to_string(),
+                        ),
+                    })?;
 
-                let mut is_proxy = self.is_proxy.lock().unwrap();
-                *is_proxy = true;
+                    let mut is_server_active = false;
+                    while !is_server_active {
+                        let address = &self.server_address.split(':').collect::<Vec<_>>();
+                        let mut client =
+                            minecraft::client::Client::new(address[0], address[1].parse()?)?;
+                        is_server_active = client.status().is_ok();
+
+                        thread::sleep(Duration::from_secs(20));
+                    }
+
+                    let mut is_proxy = self.is_proxy.lock().unwrap();
+                    *is_proxy = true;
+                } else {
+                    stream.write_packet(DisconnectLogin {
+                        reason: RawJsonText::String(
+                            "サーバを起動できませんでした。後ほど試してください。".to_string(),
+                        ),
+                    })?;
+                }
             }
             _ => {
                 return Err(anyhow::anyhow!(
@@ -106,6 +132,37 @@ impl<'a> Server<'a> {
 
         Ok(())
     }
+
+    async fn start_instance(&self) -> anyhow::Result<()> {
+        let region_provider = RegionProviderChain::default_provider().or_else("ap-northeast-1");
+        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+            .region(region_provider)
+            .load()
+            .await;
+        let client = Client::new(&config);
+
+        let _start_instances_response = client
+            .start_instances()
+            .instance_ids(self.instance_id)
+            .send()
+            .await?;
+
+        Ok(())
+    }
+
+    async fn stop_instance(&self) -> anyhow::Result<()> {
+        let region_provider = RegionProviderChain::default_provider().or_else("ap-northeast-1");
+        let config = aws_config::from_env().region(region_provider).load().await;
+        let client = Client::new(&config);
+
+        let _stop_instances_response = client
+            .stop_instances()
+            .instance_ids(self.instance_id)
+            .send()
+            .await?;
+
+        Ok(())
+    }
 }
 
 impl Clone for Server<'_> {
@@ -114,55 +171,69 @@ impl Clone for Server<'_> {
             is_proxy: Arc::clone(&self.is_proxy),
             client_address: self.client_address,
             server_address: self.server_address,
+            instance_id: self.instance_id,
         }
     }
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+
     let client_addr = "127.0.0.1:25564";
-    let server_addr = "127.0.0.1:25565";
-    let server = Server::new(client_addr, server_addr);
+    let server_addr = "54.199.116.219:25565";
+    let instance_id = "i-07ad2faad1eaed991";
+    let server = Server::new(client_addr, server_addr, instance_id);
     let listener = TcpListener::bind(server.client_address).await?;
 
     let mut interval = time::interval(USAGE_CHECK_INTERVAL);
     let split = server_addr.split(':').collect::<Vec<_>>();
     let (host, port) = (split[0], split[1].parse()?);
 
-    let is_proxy_for_interval = server.clone().is_proxy.clone();
-    tokio::task::spawn(async move {
-        let mut inactive_count = 0;
+    tokio::task::spawn({
+        let is_proxy = server.clone().is_proxy.clone();
+        let server = server.clone();
+        async move {
+            let mut inactive_count = 0;
 
-        loop {
-            interval.tick().await;
+            loop {
+                interval.tick().await;
 
-            let is_proxy = is_proxy_for_interval.lock().unwrap();
-            if !*is_proxy {
-                continue;
-            }
+                {
+                    let is_proxy = is_proxy.lock().unwrap();
+                    if !*is_proxy {
+                        continue;
+                    }
+                }
 
-            let mut client = client::Client::new(host, port).unwrap();
-            let status = client.status().unwrap();
-            if status.players.online == 0 {
-                inactive_count += 1;
-            } else {
-                inactive_count = 0;
-            }
+                let mut client = client::Client::new(host, port).unwrap();
+                let status = client.status().unwrap();
+                if status.players.online == 0 {
+                    inactive_count += 1;
+                } else {
+                    inactive_count = 0;
+                }
 
-            if inactive_count >= 3 {
-                // TODO: サーバーのシャットダウン
-                let mut is_proxy = is_proxy_for_interval.lock().unwrap();
-                *is_proxy = false;
+                if inactive_count >= 3 {
+                    server.stop_instance().await.unwrap();
+
+                    {
+                        let mut is_proxy = is_proxy.lock().unwrap();
+                        *is_proxy = false;
+                    }
+                }
             }
         }
     });
 
     loop {
-        let server = server.clone();
         let (stream, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            if let Err(e) = server.handle_request(stream).await {
-                eprintln!("Error handling request: {e}");
+        tokio::spawn({
+            let server = server.clone();
+            async move {
+                if let Err(e) = server.handle_request(stream).await {
+                    eprintln!("Error handling request: {e}");
+                }
             }
         });
     }
