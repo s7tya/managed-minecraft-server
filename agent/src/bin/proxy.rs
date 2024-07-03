@@ -14,6 +14,7 @@ use agent::minecraft::{
 use aws_config::{meta::region::RegionProviderChain, BehaviorVersion};
 use aws_sdk_ec2::Client;
 use std::{
+    env,
     sync::{Arc, Mutex},
     thread,
     time::Duration,
@@ -28,17 +29,17 @@ const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(60 * 5);
 struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
     client_address: &'a str,
-    server_address: &'a str,
-    instance_id: &'a str,
+    server_address: String,
+    instance_id: String,
 }
 
 impl<'a> Server<'a> {
-    pub fn new(client_address: &'a str, server_address: &'a str, instance_id: &'a str) -> Self {
+    pub fn new(client_address: &'a str, server_address: &str, instance_id: &str) -> Self {
         Self {
             is_proxy: Arc::new(Mutex::new(false)),
             client_address,
-            server_address,
-            instance_id,
+            server_address: server_address.to_string(),
+            instance_id: instance_id.to_string(),
         }
     }
 
@@ -151,7 +152,7 @@ impl<'a> Server<'a> {
 
         let _start_instances_response = client
             .start_instances()
-            .instance_ids(self.instance_id)
+            .instance_ids(&self.instance_id)
             .send()
             .await?;
 
@@ -160,12 +161,15 @@ impl<'a> Server<'a> {
 
     async fn stop_instance(&self) -> anyhow::Result<()> {
         let region_provider = RegionProviderChain::default_provider().or_else("ap-northeast-1");
-        let config = aws_config::from_env().region(region_provider).load().await;
+        let config = aws_config::defaults(BehaviorVersion::v2024_03_28())
+            .region(region_provider)
+            .load()
+            .await;
         let client = Client::new(&config);
 
         let _stop_instances_response = client
             .stop_instances()
-            .instance_ids(self.instance_id)
+            .instance_ids(&self.instance_id)
             .send()
             .await?;
 
@@ -178,8 +182,8 @@ impl Clone for Server<'_> {
         Server {
             is_proxy: Arc::clone(&self.is_proxy),
             client_address: self.client_address,
-            server_address: self.server_address,
-            instance_id: self.instance_id,
+            server_address: self.server_address.to_string(),
+            instance_id: self.instance_id.to_string(),
         }
     }
 }
@@ -189,14 +193,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
     let client_addr = "127.0.0.1:25564";
-    let server_addr = "54.199.116.219:25565";
-    let instance_id = "i-07ad2faad1eaed991";
-    let server = Server::new(client_addr, server_addr, instance_id);
+    let server_addr = env::var("SERVER_ADDRESS").unwrap();
+    let instance_id = env::var("INSTANCE_ID").unwrap();
+    let server = Server::new(client_addr, &server_addr, &instance_id);
     let listener = TcpListener::bind(server.client_address).await?;
 
     let mut interval = time::interval(USAGE_CHECK_INTERVAL);
-    let split = server_addr.split(':').collect::<Vec<_>>();
-    let (host, port) = (split[0], split[1].parse()?);
+    let split = server_addr.split(':').map(String::from).collect::<Vec<_>>();
 
     tokio::task::spawn({
         let is_proxy = server.clone().is_proxy.clone();
@@ -214,7 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
 
-                let mut client = client::Client::new(host, port).unwrap();
+                let mut client = client::Client::new(&split[0], split[1].parse().unwrap()).unwrap();
                 let status = client.status().unwrap();
                 if status.players.online == 0 {
                     inactive_count += 1;
