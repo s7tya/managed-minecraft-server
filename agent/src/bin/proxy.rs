@@ -26,19 +26,19 @@ use tokio::{
 
 const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(60 * 5);
 
-struct Server<'a> {
+struct Server {
     is_proxy: Arc<Mutex<bool>>,
-    client_address: &'a str,
     server_address: String,
+    client_address: String,
     instance_id: String,
 }
 
-impl<'a> Server<'a> {
-    pub fn new(client_address: &'a str, server_address: &str, instance_id: &str) -> Self {
+impl Server {
+    pub fn new(client_address: &str, server_address: &str, instance_id: &str) -> Self {
         Self {
             is_proxy: Arc::new(Mutex::new(false)),
-            client_address,
             server_address: server_address.to_string(),
+            client_address: client_address.to_string(),
             instance_id: instance_id.to_string(),
         }
     }
@@ -177,12 +177,12 @@ impl<'a> Server<'a> {
     }
 }
 
-impl Clone for Server<'_> {
+impl Clone for Server {
     fn clone(&self) -> Self {
         Server {
             is_proxy: Arc::clone(&self.is_proxy),
-            client_address: self.client_address,
             server_address: self.server_address.to_string(),
+            client_address: self.client_address.to_string(),
             instance_id: self.instance_id.to_string(),
         }
     }
@@ -192,18 +192,19 @@ impl Clone for Server<'_> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenvy::dotenv().ok();
 
-    let client_addr = "127.0.0.1:25564";
+    let client_addr = env::var("CLIENT_ADDRESS").unwrap();
     let server_addr = env::var("SERVER_ADDRESS").unwrap();
     let instance_id = env::var("INSTANCE_ID").unwrap();
-    let server = Server::new(client_addr, &server_addr, &instance_id);
-    let listener = TcpListener::bind(server.client_address).await?;
+
+    let server = Server::new(&client_addr, &server_addr, &instance_id);
+    let listener = TcpListener::bind(&server.client_address).await?;
 
     let mut interval = time::interval(USAGE_CHECK_INTERVAL);
     let split = server_addr.split(':').map(String::from).collect::<Vec<_>>();
 
     tokio::task::spawn({
-        let is_proxy = server.clone().is_proxy.clone();
         let server = server.clone();
+        let is_proxy = server.clone().is_proxy.clone();
         async move {
             let mut inactive_count = 0;
 
