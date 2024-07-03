@@ -23,7 +23,7 @@ use tokio::{
     time, try_join,
 };
 
-const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(5);
+const USAGE_CHECK_INTERVAL: time::Duration = time::Duration::from_secs(60 * 5);
 
 struct Server<'a> {
     is_proxy: Arc<Mutex<bool>>,
@@ -105,11 +105,19 @@ impl<'a> Server<'a> {
                     let mut is_server_active = false;
                     while !is_server_active {
                         let address = &self.server_address.split(':').collect::<Vec<_>>();
-                        let mut client =
-                            minecraft::client::Client::new(address[0], address[1].parse()?)?;
-                        is_server_active = client.status().is_ok();
+                        println!("サーバーへの疎通を確認します。");
+                        if let Ok(mut client) =
+                            minecraft::client::Client::new(address[0], address[1].parse()?)
+                        {
+                            is_server_active = client.status().is_ok();
+                        }
 
-                        thread::sleep(Duration::from_secs(20));
+                        if is_server_active {
+                            println!("接続を確認できました。プロキシを開始します。")
+                        } else {
+                            println!("接続できませんでした。20s後に再接続します。");
+                            thread::sleep(Duration::from_secs(20));
+                        }
                     }
 
                     let mut is_proxy = self.is_proxy.lock().unwrap();
@@ -221,6 +229,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let mut is_proxy = is_proxy.lock().unwrap();
                         *is_proxy = false;
                     }
+
+                    println!("アクセスがなかったためサーバとプロキシを停止しました。");
                 }
             }
         }

@@ -1,7 +1,8 @@
 use core::panic;
 use std::{
     io::{Cursor, Read},
-    net::TcpStream,
+    net::{SocketAddr, TcpStream},
+    time::Duration,
 };
 
 use integer_encoding::VarIntReader;
@@ -14,7 +15,8 @@ pub struct Connection {
 
 impl Connection {
     pub fn new(host: &str, port: u16) -> anyhow::Result<Self> {
-        let stream = TcpStream::connect((host.to_string(), port))?;
+        let addr: SocketAddr = format!("{}:{}", host, port).parse().unwrap();
+        let stream = TcpStream::connect_timeout(&addr, Duration::from_secs(5))?;
         stream.set_nodelay(true)?;
 
         Ok(Connection { stream })
